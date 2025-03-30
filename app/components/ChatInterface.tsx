@@ -1,6 +1,6 @@
 "use client";
 
-// UPDATED: Modified ChatInterface to use real Gemini API
+// UPDATED: Modified ChatInterface to use real Gemini API with comprehensive image tracking
 import { useState, useRef, useEffect } from "react";
 import {
   Send,
@@ -9,9 +9,13 @@ import {
   FileUp,
 } from "lucide-react";
 
-interface ChatInterfaceProps {
-  chatId: string | null;
-  onDesignUpdate: (imageUrl: string) => void;
+// UPDATED: Enhanced interfaces for better image handling
+interface ImageData {
+  id: string;
+  data: string; // base64 encoded image
+  mimeType: string;
+  name?: string;
+  timestamp: Date;
 }
 
 interface Message {
@@ -19,7 +23,16 @@ interface Message {
   content: string;
   sender: "user" | "system";
   timestamp: Date;
+  // UPDATED: Changed direct image embedding to references
+  imageId?: string; // Reference to a specific image (for displaying a single image)
+  imageIds?: string[]; // References to multiple images (for messages referring to multiple images)
+  // Keep for backward compatibility until fully migrated
   imageUrl?: string;
+}
+
+interface ChatInterfaceProps {
+  chatId: string | null;
+  onDesignUpdate: (imageUrl: string) => void;
 }
 
 // Function to convert File to base64
@@ -36,11 +49,24 @@ export default function ChatInterface({
   chatId,
   onDesignUpdate,
 }: ChatInterfaceProps) {
+  // Core state
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // UPDATED: Enhanced image state management
+  const [uploadedImages, setUploadedImages] = useState<ImageData[]>(
+    []
+  );
+  const [generatedImages, setGeneratedImages] = useState<ImageData[]>(
+    []
+  );
+  const [currentImageId, setCurrentImageId] = useState<string | null>(
+    null
+  );
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -73,6 +99,9 @@ export default function ChatInterface({
     try {
       setError(null);
 
+      // UPDATED: Log the request for debugging
+      console.log("Sending request to Gemini API:", { prompt });
+
       const response = await fetch("/api/gemini", {
         method: "POST",
         headers: {
@@ -91,6 +120,10 @@ export default function ChatInterface({
       }
 
       const result = await response.json();
+
+      // UPDATED: Log the response for debugging
+      console.log("Received response from Gemini API:", result);
+
       return result;
     } catch (error) {
       console.error("Error processing image with Gemini API:", error);
@@ -131,7 +164,7 @@ export default function ChatInterface({
           inputValue
         );
 
-        // Create a response message with Gemini's response
+        // UPDATED: Create a response message with Gemini's response
         const responseMessage: Message = {
           id: `msg_${Date.now() + 1}`,
           content: result.text || "Here is your processed design:",
@@ -145,6 +178,9 @@ export default function ChatInterface({
         // Update the design in the product panel if we got an image
         if (result.image) {
           onDesignUpdate(result.image);
+        } else {
+          // UPDATED: If no image was returned but we expected one, show a message
+          console.warn("No image was returned from the Gemini API");
         }
       } else {
         // No image to process, just respond with text
@@ -160,7 +196,20 @@ export default function ChatInterface({
       }
     } catch (error) {
       console.error("Error in send message:", error);
-      // Error message already set in processImageWithGeminiAPI
+
+      // UPDATED: Add error message to the chat
+      const errorMessage: Message = {
+        id: `msg_${Date.now() + 1}`,
+        content: `Error: ${
+          error instanceof Error
+            ? error.message
+            : "Failed to process your request"
+        }`,
+        sender: "system",
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setIsProcessing(false);
     }
@@ -215,13 +264,15 @@ export default function ChatInterface({
       // Process with generic prompt for initial image
       const result = await processImageWithGeminiAPI(
         base64Image,
-        "Process this image and prepare it for design purposes. Enhance it if needed."
+        "Process this image."
       );
 
-      // Create a response message with the processed image
+      // UPDATED: Create a response message with the processed image
       const responseMessage: Message = {
         id: `msg_${Date.now() + 1}`,
-        content: result.text || "Here's your image ready for design:",
+        content:
+          result.text ||
+          "Here's the processed image, ready for design purposes:",
         sender: "system",
         timestamp: new Date(),
         imageUrl: result.image || base64Image, // Use original if no new image
@@ -232,8 +283,12 @@ export default function ChatInterface({
       // Update the design in the product panel
       if (result.image) {
         onDesignUpdate(result.image);
+        console.log("Design updated with generated image");
       } else if (base64Image) {
         onDesignUpdate(base64Image);
+        console.log(
+          "Design updated with original image (no generated image returned)"
+        );
       }
     } catch (error) {
       console.error("Error processing image:", error);

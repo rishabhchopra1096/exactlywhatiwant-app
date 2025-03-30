@@ -1,4 +1,5 @@
 // CREATED: Gemini API utility functions
+// UPDATED: Added support for image generation in response
 import { GoogleGenerativeAI, Part } from "@google/generative-ai";
 
 // Create a function to get the API key from environment variables
@@ -36,9 +37,9 @@ export async function processImageWithGemini(
   try {
     const genAI = initGeminiClient();
 
-    // Use Gemini 2.0 Flash model for image processing
+    // UPDATED: Use Gemini 2.0 Flash Exp model which supports image generation
     const model = genAI.getGenerativeModel({
-      model: "gemini-2.0-flash",
+      model: "gemini-2.0-flash-exp", // Use the experimental model that supports image generation
       generationConfig: {
         temperature: 0.4,
         topK: 32,
@@ -63,15 +64,13 @@ export async function processImageWithGemini(
       });
     }
 
-    // Add prompt text
+    // Add prompt text with explicit instruction to generate an image
     parts.push({
-      text: prompt,
+      text: `${prompt} Please generate and return an edited version of this image based on my request.`,
     });
 
-    // Process with Gemini
-    const result = await model.generateContent({
-      contents: [{ role: "user", parts }],
-    });
+    // UPDATED: Use a simpler approach for generateContent that works with TypeScript
+    const result = await model.generateContent(parts);
 
     const response = result.response;
 
@@ -93,6 +92,11 @@ export async function processImageWithGemini(
     } catch (error) {
       console.error("Error extracting image from response:", error);
     }
+
+    console.log("Response from Gemini API:", {
+      hasText: !!responseText,
+      hasImage: !!responseImage,
+    });
 
     return {
       text: responseText,
