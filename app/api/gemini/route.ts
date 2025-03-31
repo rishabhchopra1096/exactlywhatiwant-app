@@ -1,15 +1,22 @@
 // CREATED: API route for Gemini image processing
-// UPDATED: Using fetch to directly call Gemini API for image generation
+// UPDATED: Using fetch to directly call Gemini API for image generation with full context
 import { NextRequest, NextResponse } from "next/server";
+
+interface ImageData {
+  data: string; // base64 encoded image
+  mimeType?: string;
+}
+
+interface MessageHistory {
+  role: string;
+  content: string;
+  imageUrl?: string;
+}
 
 interface GeminiRequestBody {
   image: string;
   prompt: string;
-  chatHistory?: Array<{
-    role: string;
-    content: string;
-    imageUrl?: string;
-  }>;
+  chatHistory?: MessageHistory[];
 }
 
 // Gemini API endpoint for image generation
@@ -49,39 +56,81 @@ export async function POST(request: NextRequest) {
     // Prepare image data for Gemini API
     const imageBase64 = image.split(",")[1]; // Remove data URL prefix
 
-    // Construct the Gemini API request payload
-    const geminiPayload = {
-      contents: [
+    // Build content array from chat history for context
+    const contents = [];
+
+    // First, add current request with image and prompt
+    contents.push({
+      role: "user",
+      parts: [
         {
-          role: "user",
-          parts: [
-            {
-              inlineData: {
-                mimeType: "image/jpeg", // Adjust based on your image type
-                data: imageBase64,
-              },
-            },
-            {
-              text: `${prompt} Please generate an edited version of this image.`,
-            },
-          ],
+          inlineData: {
+            mimeType: "image/jpeg", // Adjust based on your image type
+            data: imageBase64,
+          },
+        },
+        {
+          text: `${prompt}`,
         },
       ],
+    });
+
+    // Add chat history for context if available
+    if (chatHistory && chatHistory.length > 0) {
+      // Process each message in the chat history
+      for (const msg of chatHistory) {
+        if (msg.role === "user" || msg.role === "model") {
+          // Prepare parts for this message
+          const parts = [];
+
+          // Add the text content
+          if (msg.content) {
+            parts.push({ text: msg.content });
+          }
+
+          // Add image if present
+          if (msg.imageUrl) {
+            const imgData = msg.imageUrl.split(",")[1]; // Remove data URL prefix
+            if (imgData) {
+              parts.push({
+                inlineData: {
+                  mimeType: "image/jpeg", // Default to JPEG
+                  data: imgData,
+                },
+              });
+            }
+          }
+
+          // Only add if we have parts
+          if (parts.length > 0) {
+            contents.push({
+              role: msg.role,
+              parts,
+            });
+          }
+        }
+      }
+    }
+
+    // Construct the Gemini API request payload
+    const geminiPayload = {
+      contents,
       generationConfig: {
-        temperature: 0.4,
+        temperature: 0.7,
         topK: 32,
         topP: 0.95,
         maxOutputTokens: 8192,
         responseModalities: ["TEXT", "IMAGE"],
-        responseMimeType: "text/plain",
       },
     };
 
     // Log the request for debugging
     console.log("Sending request to Gemini API:", {
       endpoint: GEMINI_API_ENDPOINT,
-      prompt,
-      imageIncluded: !!imageBase64,
+      promptLength: prompt.length,
+      hasImage: !!imageBase64,
+      historyLength: chatHistory?.length || 0,
+      contentsLength: contents.length,
     });
 
     // Call the Gemini API

@@ -105,6 +105,7 @@ export default function Dashboard() {
         <ChatInterface
           chatId={currentChatId}
           onDesignUpdate={updateDesign}
+          productType={selectedProduct}
         />
       </div>
 
